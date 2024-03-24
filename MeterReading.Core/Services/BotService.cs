@@ -65,6 +65,8 @@ namespace MeterReading.Core.Services
             return Task.CompletedTask;
         }
 
+
+        #region OnCallbackReceived
         private async Task OnCallbackQueryReceived(ITelegramBotClient client, CallbackQuery callbackQuery)
         {
             if (callbackQuery is null || callbackQuery.Data is null) return;
@@ -127,7 +129,7 @@ namespace MeterReading.Core.Services
                 }
 
                 int success = await _electricityRepo.DeleteAsync(electricityId);
-                await (success >= 0 
+                await (success >= 0
                     ? client.SendTextMessageAsync(chat, $"Показания за {indicationToDelete.CreationDate.ToString("MMMM")} удалены.")
                     : throw new Exception(nameof(_electricityRepo.DeleteAsync)));
             }
@@ -145,19 +147,21 @@ namespace MeterReading.Core.Services
                 }
 
                 int success = await _waterRepo.DeleteAsync(waterId);
-                await (success >= 0 
+                await (success >= 0
                     ? client.SendTextMessageAsync(chat, $"Показания за {indicationToDelete.CreationDate.ToString("MMMM")} удалены.")
                     : throw new Exception(nameof(_waterRepo.DeleteAsync)));
             }
         }
+        #endregion
 
+        #region OnMessageReceived
         private async Task OnMessageReceived(ITelegramBotClient client, Message message)
         {
             await (message.Text?.ToLower() switch
             {
                 "/start" => AddUser(client, message),
-                "/prev_w" => GetWaterIndications(client, message),
-                "/prev_e" => GetElectricityIndications(client, message),
+                "/prev_w" => GetIndications(client, message, _waterRepo.Get().Result.ToList()),
+                "/prev_e" => GetIndications(client, message, _electricityRepo.Get().Result.ToList()),
                 "/add" => client.SendTextMessageAsync(message.Chat, "Что вы хотите добавить?",
                     replyMarkup: Keyboard.DrawReplyKeyboard(Button.WaterOrElectricity)),
                 "💧 вода" => SendWaterMessage(client, message),
@@ -199,40 +203,28 @@ namespace MeterReading.Core.Services
                 : throw new Exception(nameof(_userRepo.CreateAsync)));
         }
 
-        private async Task GetWaterIndications(ITelegramBotClient client, Message message)
+        private async Task GetIndications<T>(ITelegramBotClient client, Message message, IList<T> indicationsFromRepo)
         {
-            var indications = await _waterRepo.Get();
-            if (indications is null || !indications.Any())
+            if (indicationsFromRepo is null || !indicationsFromRepo.Any())
             {
-                await client.SendTextMessageAsync(message.Chat, "Здесь пока пусто.");
+                await client.SendTextMessageAsync(message.Chat, "Здесь пока апусто");
                 return;
             }
 
-            foreach (var item in indications)
+            foreach (var item in indicationsFromRepo)
             {
-                await client.SendTextMessageAsync(message.Chat, item.ToString(),
-                    replyMarkup: Keyboard.DrawInlineKeyboard(Button.UpdateOrDelete, string.Join(":", "W", item.Id)));
+                if (item is WaterIndication waterIndication)
+                {
+                    await client.SendTextMessageAsync(message.Chat, waterIndication.ToString(),
+                        replyMarkup: Keyboard.DrawInlineKeyboard(Button.UpdateOrDelete, string.Join(":", "W", waterIndication.Id)));
+                }
+
+                if (item is ElectricityIndication electricityIndication)
+                {
+                    await client.SendTextMessageAsync(message.Chat, electricityIndication.ToString(),
+                        replyMarkup: Keyboard.DrawInlineKeyboard(Button.UpdateOrDelete, string.Join(":", "E", electricityIndication.Id)));
+                }
             }
-
-            return;
-        }
-
-        private async Task GetElectricityIndications(ITelegramBotClient client, Message message)
-        {
-            var indications = await _electricityRepo.Get();
-            if (indications is null || !indications.Any())
-            {
-                await client.SendTextMessageAsync(message.Chat, "Здесь пока пусто.");
-                return;
-            }
-
-            foreach (var item in indications)
-            {
-                await client.SendTextMessageAsync(message.Chat, item.ToString(),
-                    replyMarkup: Keyboard.DrawInlineKeyboard(Button.UpdateOrDelete, string.Join(":", "E", item.Id)));
-            }
-
-            return;
         }
 
         private async Task<T?> CreateIndication<T>(ITelegramBotClient client, Message message, T indication, string text, int? lastUpdate = null)
@@ -248,7 +240,7 @@ namespace MeterReading.Core.Services
                 {
                     if (double.TryParse(newUpdate.Message?.Text?.Replace('.', ','), out double result))
                     {
-                        if(indication is WaterIndication waterIndication)
+                        if (indication is WaterIndication waterIndication)
                         {
                             if (waterIndication.AmountColdWater <= 0)
                             {
@@ -261,18 +253,20 @@ namespace MeterReading.Core.Services
                             }
                         }
 
-                        if(indication is ElectricityIndication electricityIndication)
+                        if (indication is ElectricityIndication electricityIndication)
                         {
-                            if(electricityIndication.AmountElectricity <= 0)
+                            if (electricityIndication.AmountElectricity <= 0)
                             {
                                 electricityIndication.AmountElectricity = result;
                             }
                         }
-                       
+
                         return indication;
                     }
                 }
             }
         }
+        #endregion
+
     }
 }
